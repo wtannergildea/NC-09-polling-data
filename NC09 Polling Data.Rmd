@@ -1,0 +1,149 @@
+---
+title: "NC-09 Polling Data"
+author: "Tanner Gildea"
+date: "2/26/2019"
+output: html_document
+---
+```{r madlibs, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(dplyr)
+library(janitor)
+library(gt)
+library(tidyverse)
+library(readxl)
+library(lubridate)
+
+polling_data <- read_csv("elections-poll-nc09-3.csv")
+```
+
+# Polling Data in 2018
+
+``` {r make_chart, echo = FALSE, results = "asis"}
+
+# To create the table, first I clean the polling data below.
+table <- polling_data %>%
+  select(response, race_eth, final_weight) %>%
+  group_by(race_eth, response) %>%
+  summarize(total = sum(final_weight)) %>%
+  
+  # It's important to exclude all NA values.
+  
+  filter(race_eth != "[DO NOT READ] Don't know/Refused") %>%
+  spread(key =  response, value = total, fill = 0) %>%
+  
+  # The mutate functions create the percentage values that will fill in the table later.
+  mutate(all = Dem + Rep + Und + `3`) %>%
+  mutate(Dem = Dem / all) %>%
+  mutate(Rep = Rep / all) %>%
+  mutate(Und = Und / all) %>%
+  select(-all, - `3`) %>%
+  
+  # This line of code arranges the rows in the desired, non-randomized order.
+  arrange(factor(race_eth, levels = c("White", "Black", "Hispanic", "Asian", "Other"))) %>% 
+
+  ungroup() %>%
+
+# The gt() package allows us to easily create tables with the data.
+gt() %>%
+  tab_header(
+    title = "Polling Results in North Carolina 9th Congressional District",
+    subtitle = "New York Times Upshot/Siena College 2018 live polls") %>%
+
+# Here I provide accessable labels to each column.
+  cols_label(
+    race_eth = "Race",
+    Dem = "DEM.",
+    Rep = "REP.",
+    Und = "UND."
+  ) %>%
+
+  fmt_percent(columns = vars(Dem, Rep, Und),
+              decimals = 0) %>% 
+
+# This sequence of functions allows the table to transfer nicely into RMarkdown.
+    as_raw_html() %>% as.character() %>% cat()
+
+```
+
+# Impact of Education Levels
+
+
+```{r}
+# To recreate this graph, I will need to combine a violin and a jitter function. First, I isolate the education and weight values and remove the NA values. 
+voter_education_violin <- polling_data %>% 
+  select(educ, final_weight) %>% 
+  filter(educ != "[DO NOT READ] Refused") %>% 
+  group_by(educ)
+  
+  # Here I change the order of the education levels, otherwise they are random.
+voter_education_violin$educ <- 
+  fct_rev(factor(voter_education_violin$educ, 
+                 levels = c("Graduate or Professional Degree", 
+                                  "Bachelors' degree", 
+                                  "Some college or trade school", 
+                                  "High school", 
+                                  "Grade school")))
+
+# Now I create the violin plot, using the jitter function to add the scattered points.
+voter_education_violin %>% 
+  ggplot(aes(x = educ, y = final_weight)) + 
+  
+  geom_violin() + 
+  
+  # This function is necessary for the violin outlines to appear.
+  coord_flip() +
+  
+  geom_jitter(alpha = .5, width = .2, size = 1) + 
+  
+# Add some neat titles for accessibility.
+  
+  labs(title = "More Educated Matter Less in North Carolina 9th", 
+       subtitle = "Poll gives more weight to people who are less likely to participate in polls",
+       caption = "New York Times Upshot/Siena College 2018 live polls") +
+  
+  ylab("Weight Given to Respondent in Calculating Poll Results") + xlab(NULL)
+
+```
+
+
+
+# GOP Age and Education Levels
+
+```{r}
+
+# For this categorical visualization, I want to present respondents in support of Republicans based on both their education levels and age. To do so, I first need to manipulate the polling data below:
+
+categorical_data <- polling_data %>% 
+  select(ager, educ, response)  %>% 
+  filter(response == "Rep") %>% 
+  
+  # There are cases both in education and age in which the respondents did not answer, so I need to remove these.
+  filter(educ != "[DO NOT READ] Refused") %>% 
+  filter(ager != "[DO NOT READ] Refused") %>% 
+  
+  group_by(educ, ager) %>% 
+  
+  # After grouping by both education and age above, my mutate function counts the total number of respondents. I will need this for my graph's y-axis.
+  mutate(count = n())
+
+# Before creating my graph, I know that I need to order the education levels. I decided to order them with highest level of education to lowest.
+categorical_data$educ <- factor(categorical_data$educ, 
+                                levels = c("Graduate or Professional Degree",                                    "Bachelors' degree", 
+                                  "Some college or trade school", 
+                                   "High school", 
+                                   "Grade school"))
+  
+# Now I create the graph. I present the categorical data using a geom_column function, with age on the x-axis and education as fill.
+ ggplot(categorical_data, aes(x = ager, y = count, fill = educ)) + 
+    
+   # setting position to dodge ensures the columns look nice
+   geom_col(position = "dodge", width = .5) +
+ 
+   labs(title = "Republican Voters by Education Level and Age",
+        subtitle = "Per Response to Poll",
+        caption = "New York Times Upshot/Siena College 2018 live polls",
+        fill = "Education Level") +
+
+   xlab("Age") + ylab("Count") 
+```
